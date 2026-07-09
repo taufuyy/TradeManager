@@ -100,6 +100,9 @@ class Dashboard(ctk.CTk):
         self._equity_alarm_flashing = False
         self._prev_connected = True
         
+        # pnl calendar state
+        self._pnl_calendar_cache = {}  # (year, month) -> dict of pnl
+        self._last_calendar_refresh_day = None
         # chart state
         self._price_history = deque(maxlen=80)
         self._simulated_mc_price = 0.0
@@ -690,6 +693,28 @@ class Dashboard(ctk.CTk):
         self.sim_chart = CandleChart(frame, self.mt5, title="Preview Simulator Chart", height=220)
         self.sim_chart.pack(fill="x", padx=16, pady=(4, 10))
 
+    def _fetch_calendar_data(self, year: int, month: int, force_refresh: bool = False) -> dict:
+        from datetime import datetime
+        now = datetime.now()
+        is_current_month = (year == now.year and month == now.month)
+        
+        need_fetch = False
+        if (year, month) not in self._pnl_calendar_cache:
+            need_fetch = True
+        elif is_current_month:
+            if self._last_calendar_refresh_day != now.day:
+                need_fetch = True
+            elif force_refresh:
+                need_fetch = True
+                
+        if need_fetch:
+            data = self.mt5.get_daily_pnl_map(year, month)
+            self._pnl_calendar_cache[(year, month)] = data
+            if is_current_month:
+                self._last_calendar_refresh_day = now.day
+                
+        return self._pnl_calendar_cache.get((year, month), {})
+
     # ── Performance Analytics Tab ─────────────────────────────
     def _build_performance_tab(self, parent):
         import tkinter as tk
@@ -701,7 +726,7 @@ class Dashboard(ctk.CTk):
         from datetime import datetime
         import calendar
 
-        frame = ctk.CTkFrame(parent, fg_color=CARD_BG, corner_radius=10, border_width=1, border_color=CARD_BORDER)
+        frame = ctk.CTkScrollableFrame(parent, fg_color=CARD_BG, corner_radius=10, border_width=1, border_color=CARD_BORDER)
         frame.pack(fill="both", expand=True, padx=12, pady=4)
 
         header = ctk.CTkLabel(frame, text="📈 PERFORMANCE ANALYTICS", font=(FONT_FAMILY, 15, "bold"), text_color=GOLD, anchor="w")
@@ -1033,6 +1058,145 @@ class Dashboard(ctk.CTk):
 
         self._filter_btn = ctk.CTkButton(config_f, text="Filter", command=_on_filter, width=80)
         self._filter_btn.grid(row=0, column=3, padx=16)
+
+        # ── PNL CALENDAR SECTION ─────────────────────────────────────
+        cal_section = ctk.CTkFrame(frame, fg_color="transparent")
+        cal_section.pack(fill="x", expand=True, padx=16, pady=(10, 20))
+        
+        ctk.CTkLabel(cal_section, text="📅 KALENDER PNL BULANAN", font=(FONT_FAMILY, 14, "bold"), text_color=GOLD, anchor="w").pack(fill="x", pady=(0, 10))
+        
+        self._cal_container = ctk.CTkFrame(cal_section, fg_color=CARD_BG, corner_radius=10, border_width=1, border_color=CARD_BORDER)
+        self._cal_container.pack(fill="both", expand=True)
+        
+        now = datetime.now()
+        self._calendar_current_year = now.year
+        self._calendar_current_month = now.month
+        
+        # We need the class method for rendering, it will be added next.
+        # But we can call it here.
+        # Ensure it exists before running. Wait, we will add it right after this method.
+        # Wait, tkinter UI usually needs `self._render_calendar()` here but let's just use `self.after(100, self._render_calendar)` to be safe if it's not defined yet, but Python evaluates methods at runtime so `self._render_calendar()` is fine.
+        self.after(50, self._render_calendar)
+
+    def _change_calendar_month(self, delta):
+        self._calendar_current_month += delta
+        if self._calendar_current_month > 12:
+            self._calendar_current_month = 1
+            self._calendar_current_year += 1
+        elif self._calendar_current_month < 1:
+            self._calendar_current_month = 12
+            self._calendar_current_year -= 1
+        self._render_calendar()
+
+    def _render_calendar(self):
+        for widget in self._cal_container.winfo_children():
+            widget.destroy()
+            
+        import calendar
+        
+        year = self._calendar_current_year
+        month = self._calendar_current_month
+        
+        header_f = ctk.CTkFrame(self._cal_container, fg_color="transparent")
+        header_f.pack(fill="x", pady=(10, 10))
+        
+        btn_prev = ctk.CTkButton(header_f, text="◀", width=40, command=lambda: self._change_calendar_month(-1), fg_color=CARD_BORDER, hover_color="#3a3f45")
+        btn_prev.pack(side="left", padx=16)
+        
+        month_name = calendar.month_name[month]
+        title_lbl = ctk.CTkLabel(header_f, text=f"{month_name} {year}", font=(FONT_FAMILY, 15, "bold"), text_color=TEXT_PRIMARY)
+        title_lbl.pack(side="left", expand=True)
+        
+        btn_next = ctk.CTkButton(header_f, text="▶", width=40, command=lambda: self._change_calendar_month(1), fg_color=CARD_BORDER, hover_color="#3a3f45")
+        btn_next.pack(side="right", padx=16)
+        
+        grid_f = ctk.CTkFrame(self._cal_container, fg_color="transparent")
+        grid_f.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        
+        for i in range(7):
+            grid_f.grid_columnconfigure(i, weight=1, uniform="cal")
+            
+        days_label = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        for i, d in enumerate(days_label):
+            ctk.CTkLabel(grid_f, text=d, font=(FONT_FAMILY, 12, "bold"), text_color=TEXT_SECONDARY).grid(row=0, column=i, pady=(0, 5))
+            
+        daily_pnl = self._fetch_calendar_data(year, month)
+        start_weekday, num_days = calendar.monthrange(year, month)
+        
+        row = 1
+        col = start_weekday
+        
+        sum_profit = 0.0
+        sum_loss = 0.0
+        
+        for day in range(1, num_days + 1):
+            pnl_val = daily_pnl.get(day, 0.0)
+            
+            if pnl_val > 0:
+                bg_col = "#152a1b" # Dark green
+                br_col = GREEN
+                txt_col = GREEN_BRIGHT
+                sum_profit += pnl_val
+            elif pnl_val < 0:
+                bg_col = "#2d1617" # Dark red
+                br_col = RED_DIM
+                txt_col = RED
+                sum_loss += abs(pnl_val)
+            else:
+                bg_col = "#1e2329" # Gray
+                br_col = CARD_BORDER
+                txt_col = TEXT_SECONDARY
+                
+            cell_f = ctk.CTkFrame(grid_f, fg_color=bg_col, border_width=1, border_color=br_col, corner_radius=6, height=65)
+            cell_f.grid(row=row, column=col, sticky="nsew", padx=3, pady=3)
+            cell_f.grid_propagate(False)
+            cell_f.grid_rowconfigure(1, weight=1)
+            cell_f.grid_columnconfigure(0, weight=1)
+            
+            ctk.CTkLabel(cell_f, text=str(day), font=(FONT_FAMILY, 10, "bold"), text_color=txt_col).grid(row=0, column=0, sticky="nw", padx=4, pady=2)
+            
+            val_f = ctk.CTkFrame(cell_f, fg_color="transparent")
+            val_f.grid(row=1, column=0, sticky="nsew", padx=2, pady=(0, 2))
+            
+            if pnl_val != 0:
+                primary_txt = format_perf_card_primary(pnl_val, self.cfg)
+                ctk.CTkLabel(val_f, text=primary_txt, font=(FONT_MONO, 11, "bold"), text_color=txt_col).pack(pady=0)
+                
+                sec_txt = format_perf_card_secondary(pnl_val, self.cfg)
+                if sec_txt:
+                    ctk.CTkLabel(val_f, text=sec_txt, font=(FONT_MONO, 9), text_color=txt_col).pack(pady=0)
+            else:
+                ctk.CTkLabel(val_f, text="-", font=(FONT_MONO, 11, "bold"), text_color=txt_col).pack(pady=4)
+            
+            col += 1
+            if col > 6:
+                col = 0
+                row += 1
+                
+        # Phase 5: Summary Section
+        self._cal_summary_f = ctk.CTkFrame(self._cal_container, fg_color="transparent")
+        self._cal_summary_f.pack(fill="x", padx=16, pady=(10, 16))
+        self._cal_summary_f.grid_columnconfigure((0, 1, 2), weight=1, uniform="sum_col")
+        
+        sum_net = sum_profit - sum_loss
+        
+        def create_sum_card(parent, title, val, col_idx, base_color):
+            card = ctk.CTkFrame(parent, fg_color=CARD_BG, border_width=1, border_color=base_color, corner_radius=8)
+            card.grid(row=0, column=col_idx, sticky="nsew", padx=6)
+            ctk.CTkLabel(card, text=title, font=(FONT_FAMILY, 11, "bold"), text_color=TEXT_SECONDARY).pack(pady=(8, 2))
+            
+            primary_txt = format_perf_card_primary(val, self.cfg)
+            ctk.CTkLabel(card, text=primary_txt, font=(FONT_MONO, 15, "bold"), text_color=base_color).pack(pady=0)
+            
+            sec_txt = format_perf_card_secondary(val, self.cfg)
+            if sec_txt:
+                ctk.CTkLabel(card, text=sec_txt, font=(FONT_MONO, 10), text_color=base_color).pack(pady=(0, 8))
+            else:
+                ctk.CTkLabel(card, text="", font=(FONT_MONO, 10)).pack(pady=(0, 8))
+                
+        create_sum_card(self._cal_summary_f, "MONTHLY PROFIT", sum_profit, 0, GREEN_BRIGHT)
+        create_sum_card(self._cal_summary_f, "MONTHLY LOSS", sum_loss, 1, RED)
+        create_sum_card(self._cal_summary_f, "MONTHLY NET PNL", sum_net, 2, GREEN_BRIGHT if sum_net >= 0 else RED)
 
     # ──────────────────────────────────────────────────────────
     # 2x2 ACTION GRID
@@ -1965,9 +2129,6 @@ class Dashboard(ctk.CTk):
         positions = self.mt5._get_filtered_positions()
         
         if mode == "TP ALL":
-            ai = mt5.account_info()
-            balance = ai.balance if ai else 0.0
-            
             tp_text = self._entry_tp.get().strip()
             try:
                 tp = float(tp_text) if tp_text else None
@@ -1989,12 +2150,11 @@ class Dashboard(ctk.CTk):
                     total_tp_prof += prof + getattr(p, "swap", 0.0)
                 if valid_tp and len(positions) > 0:
                     idr_val = to_idr(total_tp_prof, self.cfg)
-                    pct = (total_tp_prof / balance * 100) if balance > 0 else 0
                     msg_tuples.append((f"Jika TP ({tp}) tersentuh:", TEXT_PRIMARY))
                     if cur == "IDR":
-                        msg_tuples.append((f"Profit Rp {total_tp_prof:,.0f} [+{pct:.2f}%]", GREEN_BRIGHT))
+                        msg_tuples.append((f"Profit Rp {total_tp_prof:,.0f}", GREEN_BRIGHT))
                     else:
-                        msg_tuples.append((f"Profit {total_tp_prof:+.2f} {cur} [+{pct:.2f}%]\n(Rp {idr_val:,.0f})", GREEN_BRIGHT))
+                        msg_tuples.append((f"Profit {total_tp_prof:+.2f} {cur} (Rp {idr_val:,.0f})", GREEN_BRIGHT))
                 else:
                     msg_tuples.append((f"Set TP={tp}", TEXT_PRIMARY))
             
@@ -2010,13 +2170,12 @@ class Dashboard(ctk.CTk):
                     total_sl_loss += prof + getattr(p, "swap", 0.0)
                 if valid_sl and len(positions) > 0:
                     idr_val = to_idr(total_sl_loss, self.cfg)
-                    pct = (total_sl_loss / balance * 100) if balance > 0 else 0
                     if msg_tuples: msg_tuples.append(("", TEXT_PRIMARY))
                     msg_tuples.append((f"Jika SL ({sl}) tersentuh:", TEXT_PRIMARY))
                     if cur == "IDR":
-                        msg_tuples.append((f"Loss Rp {total_sl_loss:,.0f} [{pct:.2f}%]", RED))
+                        msg_tuples.append((f"Loss Rp {total_sl_loss:,.0f}", RED))
                     else:
-                        msg_tuples.append((f"Loss {total_sl_loss:+.2f} {cur} [{pct:.2f}%]\n(Rp {idr_val:,.0f})", RED))
+                        msg_tuples.append((f"Loss {total_sl_loss:+.2f} {cur} (Rp {idr_val:,.0f})", RED))
                 else:
                     if msg_tuples: msg_tuples.append(("", TEXT_PRIMARY))
                     msg_tuples.append((f"Set SL={sl}", TEXT_PRIMARY))
@@ -2104,11 +2263,11 @@ class Dashboard(ctk.CTk):
                         if cur == "IDR":
                             msg_tuples.append((f"- {tier['pct']}% ({count} pos): TP {target_price} \u27a1 Prof Rp {tier_prof:,.0f}", GREEN_BRIGHT))
                         else:
-                            msg_tuples.append((f"- {tier['pct']}% ({count} pos): TP {target_price} \u27a1 Prof {tier_prof:+.2f} {cur}\n(Rp {idr_val:,.0f})", GREEN_BRIGHT))
+                            msg_tuples.append((f"- {tier['pct']}% ({count} pos): TP {target_price} \u27a1 Prof {tier_prof:+.2f} {cur} (Rp {idr_val:,.0f})", GREEN_BRIGHT))
                     else:
                         msg_tuples.append((f"- {tier['pct']}% layer ditutup pada {target_price}", GREEN_BRIGHT))
                 else:
-                    msg_tuples.append((f"- {tier['pct']}% ({count} pos) layer dibiarkan OPEN tanpa TP", GOLD))
+                    msg_tuples.append((f"- {tier['pct']}% layer dibiarkan OPEN tanpa TP", GOLD))
                     
             if sl is not None:
                 total_sl_loss = 0.0
@@ -2127,7 +2286,7 @@ class Dashboard(ctk.CTk):
                     if cur == "IDR":
                         msg_tuples.append((f"SL {sl} \u27a1 Loss Rp {total_sl_loss:,.0f}", RED))
                     else:
-                        msg_tuples.append((f"SL {sl} \u27a1 Loss {total_sl_loss:+.2f} {cur}\n(Rp {idr_val:,.0f})", RED))
+                        msg_tuples.append((f"SL {sl} \u27a1 Loss {total_sl_loss:+.2f} {cur} (Rp {idr_val:,.0f})", RED))
                 else:
                     msg_tuples.append((f"SL dipasang ke: {sl} untuk semua layer.", TEXT_PRIMARY))
                 

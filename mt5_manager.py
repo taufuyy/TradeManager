@@ -1556,3 +1556,55 @@ class MT5Manager:
             }
             for r in rates
         ]
+
+    def get_daily_pnl_map(self, year: int, month: int) -> dict:
+        """Get daily PnL map for a given month, grouped by local machine day."""
+        if mt5 is None or not self.is_connected():
+            import calendar
+            last_day = calendar.monthrange(year, month)[1]
+            return {day: 0.0 for day in range(1, last_day + 1)}
+            
+        import calendar
+        from datetime import datetime, timedelta
+        
+        last_day = calendar.monthrange(year, month)[1]
+        
+        # 1. Gunakan waktu lokal mesin
+        start_time = datetime(year, month, 1, 0, 0, 0)
+        end_time = datetime(year, month, last_day, 23, 59, 59)
+        
+        now_local = datetime.now()
+        if year == now_local.year and month == now_local.month:
+            # Batasi sampai waktu saat ini untuk bulan berjalan
+            end_time = now_local
+            
+        start_sec = int(start_time.timestamp())
+        end_sec = int(end_time.timestamp())
+        
+        # Padded window for MT5 fetch
+        fetch_start = start_time - timedelta(days=2)
+        fetch_end = end_time + timedelta(days=2)
+        if fetch_end > now_local + timedelta(days=1):
+            fetch_end = now_local + timedelta(days=1)
+            
+        raw_deals = mt5.history_deals_get(fetch_start, fetch_end)
+        
+        # Inisialisasi dictionary untuk setiap tanggal (1 sampai akhir bulan)
+        daily_pnl = {day: 0.0 for day in range(1, last_day + 1)}
+        
+        if raw_deals is None:
+            return daily_pnl
+            
+        magic = self.cfg.get("magic_number", 0)
+        
+        for d in raw_deals:
+            if start_sec <= d.time <= end_sec:
+                if d.type in (0, 1) and d.magic == magic:
+                    pnl = d.profit + d.commission + d.swap
+                    if pnl != 0:
+                        deal_local_dt = datetime.fromtimestamp(d.time)
+                        day = deal_local_dt.day
+                        if 1 <= day <= last_day:
+                            daily_pnl[day] += pnl
+                            
+        return daily_pnl
