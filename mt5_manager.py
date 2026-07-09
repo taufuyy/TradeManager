@@ -1115,11 +1115,18 @@ class MT5Manager:
                 cmd_filename = f"tm_cmd_{int(time.time()*1000)}.txt"
                 cmd_path = os.path.join(mql5_files_dir, cmd_filename)
                 
-                # Write command
+                # Cek apakah ini close ALL atau parsial (CLOSE_TICKETS)
+                is_total_close = len(positions) == len(self._get_filtered_positions())
+                
                 try:
                     with open(cmd_path, 'w') as f:
-                        f.write(f"CLOSE_ALL|{active_sym}|{magic}")
-                    print(f"[MT5Manager] Sent CLOSE_ALL command to EA via {cmd_filename}")
+                        if is_total_close:
+                            f.write(f"CLOSE_ALL|{active_sym}|{magic}")
+                        else:
+                            tickets_str = ",".join(str(p.ticket) for p in positions)
+                            f.write(f"CLOSE_TICKETS|{active_sym}|{magic}|{tickets_str}")
+                            
+                    print(f"[MT5Manager] Sent command to EA via {cmd_filename}")
                     
                     # Wait up to 1.5 seconds to see if EA picks it up (file is deleted by EA)
                     for _ in range(15):

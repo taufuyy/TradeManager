@@ -1552,6 +1552,17 @@ class Dashboard(ctk.CTk):
         # Center line marker
         canvas.create_line(mid_x, 0, mid_x, h, fill="#8b949e", width=2)
 
+
+    def _smart_config(self, widget, **kwargs):
+        needs_update = False
+        for k, v in kwargs.items():
+            cache_key = f"_cache_{k}"
+            if getattr(widget, cache_key, None) != v:
+                setattr(widget, cache_key, v)
+                needs_update = True
+        if needs_update:
+            widget.configure(**kwargs)
+
     def _do_refresh(self):
         s = self.mt5.get_state()
         rate = self.cfg.get("usd_idr_rate", 16250)
@@ -1570,10 +1581,10 @@ class Dashboard(ctk.CTk):
             self._heartbeat_canvas.itemconfig(self._hb_dot, fill=GREEN_BRIGHT)
             active_sym = self.mt5.get_active_symbol() if hasattr(self.mt5, 'get_active_symbol') else ""
             conn_text = f"Connected ({active_sym})" if active_sym else "Connected"
-            self._lbl_conn.configure(text=conn_text, text_color=GREEN_BRIGHT)
+            self._smart_config(self._lbl_conn, text=conn_text, text_color=GREEN_BRIGHT)
         else:
             self._heartbeat_canvas.itemconfig(self._hb_dot, fill=RED)
-            self._lbl_conn.configure(text="Disconnected", text_color=RED)
+            self._smart_config(self._lbl_conn, text="Disconnected", text_color=RED)
             # beep on disconnect transition
             if self._prev_connected and not connected:
                 try:
@@ -1585,9 +1596,9 @@ class Dashboard(ctk.CTk):
         spread = s.get("spread_pips", 0.0)
         spread_limit = self.cfg.get("spread_limit_pips", 5.0)
         spread_color = RED if spread > spread_limit else TEXT_PRIMARY
-        self._lbl_spread.configure(text=f"{spread} pips", text_color=spread_color)
+        self._smart_config(self._lbl_spread, text=f"{spread} pips", text_color=spread_color)
 
-        self._lbl_idr.configure(text=f"{rate:,.0f}")
+        self._smart_config(self._lbl_idr, text=f"{rate:,.0f}")
 
         # ── Panel B ──
         pnl = s.get("floating_pnl_usc", 0)
@@ -1595,11 +1606,11 @@ class Dashboard(ctk.CTk):
         
         pnl_text = format_amount(pnl, self.cfg)
         pnl_color = GREEN_BRIGHT if pnl >= 0 else RED
-        self._lbl_pnl.configure(text=pnl_text, text_color=pnl_color)
+        self._smart_config(self._lbl_pnl, text=pnl_text, text_color=pnl_color)
         
         if bal > 0:
             pct = (pnl / bal) * 100
-            self._lbl_pnl_pct.configure(text=f"{pct:+.2f}% dari modal", text_color=pnl_color)
+            self._smart_config(self._lbl_pnl_pct, text=f"{pct:+.2f}% dari modal", text_color=pnl_color)
             if not self._lbl_pnl_pct.winfo_ismapped():
                 self._lbl_pnl_pct.pack(anchor="w", pady=(2, 0))
         else:
@@ -1607,22 +1618,22 @@ class Dashboard(ctk.CTk):
                 self._lbl_pnl_pct.pack_forget()
 
         mv = self._monitor_vals
-        mv["Layers:"].configure(text=str(s.get("total_layers", 0)))
-        mv["Total Lots:"].configure(text=f'{s.get("total_lots", 0):.2f}  '
+        self._smart_config(mv["Layers:"], text=str(s.get("total_layers", 0)))
+        self._smart_config(mv["Total Lots:"], text=f'{s.get("total_lots", 0):.2f}  '
                                           f'(B:{s.get("buy_lots", 0):.2f}  S:{s.get("sell_lots", 0):.2f})')
-        mv["Avg Price:"].configure(text=f'{s.get("avg_price_combined", 0):.2f}')
+        self._smart_config(mv["Avg Price:"], text=f'{s.get("avg_price_combined", 0):.2f}')
 
         dist = s.get("avg_distance_pips", 0.0)
         dist_sign = "+" if dist >= 0 else ""
-        mv["Avg Distance:"].configure(text=f"{dist_sign}{dist} pips",
+        self._smart_config(mv["Avg Distance:"], text=f"{dist_sign}{dist} pips",
                                        text_color=GREEN_BRIGHT if dist >= 0 else RED)
-        mv["Layer Range:"].configure(text=f'{s.get("layer_range_pips", 0.0)} pips')
+        self._smart_config(mv["Layer Range:"], text=f'{s.get("layer_range_pips", 0.0)} pips')
 
         # ── Panel C ──
         rv = self._risk_vals
         
         balance_val = s.get("balance", 0)
-        rv["Balance:"].configure(text=format_with_idr(balance_val, self.cfg))
+        self._smart_config(rv["Balance:"], text=format_with_idr(balance_val, self.cfg))
         
         equity_val = s.get("equity", 0)
         
@@ -1632,7 +1643,7 @@ class Dashboard(ctk.CTk):
         else:
             eq_color = TEXT_PRIMARY
             eq_font = (FONT_MONO, 13, "bold")
-        rv["Equity:"].configure(text=format_with_idr(equity_val, self.cfg), text_color=eq_color, font=eq_font)
+        self._smart_config(rv["Equity:"], text=format_with_idr(equity_val, self.cfg), text_color=eq_color, font=eq_font)
         
         margin_val = s.get("margin", 0)
         ml = s.get("margin_level_pct", 0)
@@ -1646,10 +1657,10 @@ class Dashboard(ctk.CTk):
         
         if total_layers == 0:
             self._mc_zone_flashing = False
-            rv["Margin:"].configure(text=format_with_idr(margin_val, self.cfg), text_color=TEXT_PRIMARY)
-            rv["Margin Lvl:"].configure(text="0.0%", text_color=TEXT_PRIMARY)
-            rv["MC Price:"].configure(text="0.00", text_color=TEXT_PRIMARY)
-            rv["MC Distance:"].configure(text=" 0.0 pips ", text_color=TEXT_PRIMARY, fg_color="transparent")
+            self._smart_config(rv["Margin:"], text=format_with_idr(margin_val, self.cfg), text_color=TEXT_PRIMARY)
+            self._smart_config(rv["Margin Lvl:"], text="0.0%", text_color=TEXT_PRIMARY)
+            self._smart_config(rv["MC Price:"], text="0.00", text_color=TEXT_PRIMARY)
+            self._smart_config(rv["MC Distance:"], text=" 0.0 pips ", text_color=TEXT_PRIMARY, fg_color="transparent")
         else:
             if mc_dist > 1000.0:
                 self._mc_zone_state = "GREEN"
@@ -1664,15 +1675,15 @@ class Dashboard(ctk.CTk):
             margin_text = format_with_idr(margin_val, self.cfg)
             if is_hedged_zero_margin:
                 margin_text += "  ⚖️ Hedge"
-            rv["Margin:"].configure(text=margin_text, text_color=zone_color)
-            rv["Margin Lvl:"].configure(text=f"{ml:.1f}%" + (" ⚖️" if is_hedged_zero_margin else ""), text_color=zone_color)
-            rv["MC Price:"].configure(text=f'{s.get("mc_price", 0):.2f}', text_color=zone_color)
+            self._smart_config(rv["Margin:"], text=margin_text, text_color=zone_color)
+            self._smart_config(rv["Margin Lvl:"], text=f"{ml:.1f}%" + (" ⚖️" if is_hedged_zero_margin else ""), text_color=zone_color)
+            self._smart_config(rv["MC Price:"], text=f'{s.get("mc_price", 0):.2f}', text_color=zone_color)
             
             if self._mc_zone_state == "GREEN":
                 self._mc_zone_flashing = False
-                rv["MC Distance:"].configure(text=f" {mc_dist} pips ", text_color=GREEN_BRIGHT, fg_color="transparent")
+                self._smart_config(rv["MC Distance:"], text=f" {mc_dist} pips ", text_color=GREEN_BRIGHT, fg_color="transparent")
             else:
-                rv["MC Distance:"].configure(text=f" {mc_dist} pips ")
+                self._smart_config(rv["MC Distance:"], text=f" {mc_dist} pips ")
                 if not getattr(self, "_mc_zone_flashing", False):
                     self._mc_zone_flashing = True
                     self._mc_blink_toggle = True
@@ -1683,17 +1694,17 @@ class Dashboard(ctk.CTk):
         if self._tp_armed_var.get() != is_tp_armed:
             self._tp_armed_var.set(is_tp_armed)
         if is_tp_armed:
-            self._lbl_tp_status.configure(text="STATUS: AKTIF", text_color=GREEN_BRIGHT)
+            self._smart_config(self._lbl_tp_status, text="STATUS: AKTIF", text_color=GREEN_BRIGHT)
         else:
-            self._lbl_tp_status.configure(text="STATUS: TIDAK AKTIF", text_color=TEXT_SECONDARY)
+            self._smart_config(self._lbl_tp_status, text="STATUS: TIDAK AKTIF", text_color=TEXT_SECONDARY)
             
         is_tl_armed = self.cfg.get("target_loss_armed", False)
         if self._tl_armed_var.get() != is_tl_armed:
             self._tl_armed_var.set(is_tl_armed)
         if is_tl_armed:
-            self._lbl_tl_status.configure(text="STATUS: AKTIF", text_color=RED)
+            self._smart_config(self._lbl_tl_status, text="STATUS: AKTIF", text_color=RED)
         else:
-            self._lbl_tl_status.configure(text="STATUS: TIDAK AKTIF", text_color=TEXT_SECONDARY)
+            self._smart_config(self._lbl_tl_status, text="STATUS: TIDAK AKTIF", text_color=TEXT_SECONDARY)
             
         # calculate progress
         target_tp_usc = self.cfg.get("target_profit_native", 0)

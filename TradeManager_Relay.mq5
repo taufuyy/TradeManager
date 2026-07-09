@@ -85,6 +85,11 @@ void ExecuteCommand(string cmd_str)
         {
          CloseAllPositions(symbol, magic);
         }
+      else if(action == "CLOSE_TICKETS" && count >= 4)
+        {
+         string tickets_str = parts[3];
+         CloseSpecificPositions(symbol, magic, tickets_str);
+        }
      }
   }
 
@@ -158,4 +163,72 @@ void CloseAllPositions(string target_symbol, long target_magic)
      
    Print("Successfully fired OrderSendAsync for ", sent_count, " positions.");
   }
+
 //+------------------------------------------------------------------+
+//| Close Specific Positions (Async)                                 |
+//+------------------------------------------------------------------+
+void CloseSpecificPositions(string target_symbol, long target_magic, string tickets_str)
+  {
+   string tickets_arr[];
+   int t_count = StringSplit(tickets_str, ',', tickets_arr);
+   int sent_count = 0;
+   
+   for(int i = 0; i < t_count; i++)
+     {
+      ulong target_ticket = StringToInteger(tickets_arr[i]);
+      if(target_ticket > 0 && PositionSelectByTicket(target_ticket))
+        {
+         string sym = PositionGetString(POSITION_SYMBOL);
+         long mag = PositionGetInteger(POSITION_MAGIC);
+         
+         if(sym == target_symbol && (target_magic == 0 || mag == target_magic))
+           {
+            double vol = PositionGetDouble(POSITION_VOLUME);
+            long type = PositionGetInteger(POSITION_TYPE);
+            
+            MqlTradeRequest request;
+            MqlTradeResult result;
+            ZeroMemory(request);
+            ZeroMemory(result);
+            
+            request.action = TRADE_ACTION_DEAL;
+            request.position = target_ticket;
+            request.symbol = sym;
+            request.volume = vol;
+            request.deviation = 50;
+            request.magic = target_magic;
+            
+            int filling = (int)SymbolInfoInteger(sym, SYMBOL_FILLING_MODE);
+            if((filling & SYMBOL_FILLING_FOK) != 0)
+               request.type_filling = ORDER_FILLING_FOK;
+            else if((filling & SYMBOL_FILLING_IOC) != 0)
+               request.type_filling = ORDER_FILLING_IOC;
+            else
+               request.type_filling = ORDER_FILLING_RETURN;
+            
+            if(type == POSITION_TYPE_BUY)
+              {
+               request.type = ORDER_TYPE_SELL;
+               request.price = SymbolInfoDouble(sym, SYMBOL_BID);
+              }
+            else
+              {
+               request.type = ORDER_TYPE_BUY;
+               request.price = SymbolInfoDouble(sym, SYMBOL_ASK);
+              }
+              
+            if(OrderSendAsync(request, result))
+              {
+               sent_count++;
+              }
+            else
+              {
+               Print("OrderSendAsync failed for ticket ", target_ticket, " Error: ", GetLastError());
+              }
+           }
+        }
+     }
+   Print("Successfully fired OrderSendAsync for ", sent_count, " specific positions.");
+  }
+//+------------------------------------------------------------------+
+
