@@ -1,6 +1,6 @@
 """
 main.py
-Entry point for Cent Layering Assistant – Mission Control.
+Entry point for Trade Manager.
 
 Responsibilities:
   1. Load configuration.
@@ -113,9 +113,9 @@ def setup_hotkeys(cfg: ConfigManager, dashboard: Dashboard):
 # ──────────────────────────────────────────────────────────────
 
 def main():
-    print("=" * 56)
-    print("  Cent Layering Assistant – Mission Control")
-    print("=" * 56)
+    print("=========================================================")
+    print("  Trade Manager")
+    print("=========================================================")
 
     # 1. Config
     cfg = ConfigManager(CONFIG_PATH)

@@ -1,6 +1,6 @@
 """
 gui_dashboard.py
-Modern CustomTkinter dashboard for Cent Layering Assistant - Mission Control.
+Modern CustomTkinter dashboard for Trade Manager.
 
 Layout:
   Panel A  – Header & System (top bar)
@@ -55,7 +55,7 @@ class Dashboard(ctk.CTk):
         self.cfg = cfg_mgr
 
         # ── window setup ─────────────────────────────────────
-        self.title("Cent Layering Assistant – Mission Control")
+        self.title("Trade Manager")
         self.geometry("1120x820")
         self.update_idletasks()
         self.minsize(1050, 750)
@@ -917,14 +917,23 @@ class Dashboard(ctk.CTk):
             gross_losses = chart_data.get("gross_losses", [])
             net_profits = chart_data.get("net_profits", [])
             
+            # Hitung lebar bar agar dinamis
+            num_points = len(dates)
+            if num_points <= 7:
+                bar_width = 0.15
+            elif num_points <= 15:
+                bar_width = 0.25
+            else:
+                bar_width = 0.4
+            
             # Draw Bidirectional Bars
-            ax.bar(x, gross_profits, color=GREEN_BRIGHT, width=0.4, label='Gross Profit')
+            ax.bar(x, gross_profits, color=GREEN_BRIGHT, width=bar_width, label='Gross Profit')
             # Negate gross losses for downward bars
             neg_losses = [-abs(val) for val in gross_losses]
-            ax.bar(x, neg_losses, color=RED, width=0.4, label='Gross Loss')
+            ax.bar(x, neg_losses, color=RED, width=bar_width, label='Gross Loss')
             
-            # Draw Cumulative Line
-            ax.plot(x, net_profits, color='#f1c40f', marker='o', linewidth=2, markersize=6, label='Net Profit')
+            # Draw Cumulative Line (warna Gold premium dengan marker lebih kecil)
+            ax.plot(x, net_profits, color='#f39c12', marker='o', linewidth=2, markersize=4, label='Net Profit')
             
             # Styling
             ax.spines['top'].set_visible(False)
@@ -934,7 +943,14 @@ class Dashboard(ctk.CTk):
             ax.tick_params(colors='white', which='both')
             
             import matplotlib.ticker as ticker
-            ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6, integer=True))
+            
+            # [FIX HARIAN]: Cegah bar raksasa & label berulang jika data cuma 1
+            if num_points == 1:
+                ax.set_xlim(-0.6, 0.6)
+                ax.set_xticks([0])
+            else:
+                ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6, integer=True))
+                
             ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda val, pos: x_labels[int(val)] if 0 <= int(val) < len(x_labels) else ''))
             
             ax.tick_params(axis='x', rotation=30)
@@ -1147,26 +1163,26 @@ class Dashboard(ctk.CTk):
                 br_col = CARD_BORDER
                 txt_col = TEXT_SECONDARY
                 
-            cell_f = ctk.CTkFrame(grid_f, fg_color=bg_col, border_width=1, border_color=br_col, corner_radius=6, height=65)
-            cell_f.grid(row=row, column=col, sticky="nsew", padx=3, pady=3)
+            cell_f = ctk.CTkFrame(grid_f, fg_color=bg_col, border_width=1, border_color=br_col, corner_radius=6, height=85)
+            cell_f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
             cell_f.grid_propagate(False)
-            cell_f.grid_rowconfigure(1, weight=1)
-            cell_f.grid_columnconfigure(0, weight=1)
             
-            ctk.CTkLabel(cell_f, text=str(day), font=(FONT_FAMILY, 10, "bold"), text_color=txt_col).grid(row=0, column=0, sticky="nw", padx=4, pady=2)
+            # Angka hari di pojok kiri atas
+            ctk.CTkLabel(cell_f, text=str(day), font=(FONT_FAMILY, 11, "bold"), text_color=txt_col).place(x=8, y=4)
             
+            # Container nilai di tengah (agak turun sedikit memberi ruang untuk angka hari)
             val_f = ctk.CTkFrame(cell_f, fg_color="transparent")
-            val_f.grid(row=1, column=0, sticky="nsew", padx=2, pady=(0, 2))
+            val_f.place(relx=0.5, rely=0.55, anchor="center")
             
             if pnl_val != 0:
                 primary_txt = format_perf_card_primary(pnl_val, self.cfg)
-                ctk.CTkLabel(val_f, text=primary_txt, font=(FONT_MONO, 11, "bold"), text_color=txt_col).pack(pady=0)
+                ctk.CTkLabel(val_f, text=primary_txt, font=(FONT_FAMILY, 11, "bold"), text_color=txt_col).pack(pady=(0, 2))
                 
                 sec_txt = format_perf_card_secondary(pnl_val, self.cfg)
                 if sec_txt:
-                    ctk.CTkLabel(val_f, text=sec_txt, font=(FONT_MONO, 9), text_color=txt_col).pack(pady=0)
+                    ctk.CTkLabel(val_f, text=sec_txt, font=(FONT_FAMILY, 9), text_color=txt_col).pack(pady=0)
             else:
-                ctk.CTkLabel(val_f, text="-", font=(FONT_MONO, 11, "bold"), text_color=txt_col).pack(pady=4)
+                ctk.CTkLabel(val_f, text="-", font=(FONT_FAMILY, 12, "bold"), text_color=txt_col).pack()
             
             col += 1
             if col > 6:

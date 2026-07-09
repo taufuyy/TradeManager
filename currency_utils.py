@@ -1,6 +1,6 @@
 """
 currency_utils.py
-Centralized currency conversion utilities for Cent Layering Assistant.
+Centralized currency conversion utilities for Trade Manager.
 
 Supports account currencies: USC (Cent), USD (Standard), IDR (Rupiah).
 All conversion logic flows through these functions so there is

@@ -1,6 +1,6 @@
 """
 config_manager.py
-Thread-safe configuration manager for Cent Layering Assistant.
+Thread-safe configuration manager for Trade Manager.
 Loads/saves parameters to config.json with auto-persist on every change.
 """
 
