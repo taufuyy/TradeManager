@@ -885,6 +885,39 @@ class MT5Manager:
             self._micro_delay()
         return results
 
+    def _send_sltp_cmd_to_ea(self, sltp_str: str) -> bool:
+        if mt5 is None: return False
+        info = mt5.terminal_info()
+        if not info or not info.data_path: return False
+        
+        import os, time
+        mql5_files_dir = os.path.join(info.data_path, "MQL5", "Files")
+        if not os.path.exists(mql5_files_dir): return False
+        
+        cmd_filename = f"tm_cmd_{int(time.time()*1000)}.txt"
+        cmd_path = os.path.join(mql5_files_dir, cmd_filename)
+        
+        active_sym = self.get_active_symbol()
+        magic = self.cfg.get("magic_number", 0)
+        
+        try:
+            with open(cmd_path, 'w') as f:
+                f.write(f"BULK_SLTP|{active_sym}|{magic}|{sltp_str}")
+            print(f"[MT5Manager] Sent BULK_SLTP to EA via {cmd_filename}")
+            
+            for _ in range(15):
+                time.sleep(0.1)
+                if not os.path.exists(cmd_path):
+                    print("[MT5Manager] EA successfully picked up BULK_SLTP!")
+                    return True
+            try:
+                os.remove(cmd_path)
+            except: pass
+            print("[MT5Manager] EA Relay did not respond to BULK_SLTP.")
+        except Exception as e:
+            print(f"[MT5Manager] Failed to write EA command file: {e}")
+        return False
+
     def apply_multi_tp(self, sl: Optional[float], tp_tiers: List[dict]) -> List[dict]:
         """
         tp_tiers: list of {"tp": float, "pct": float} where sum(pct) should ideally be 100.
@@ -915,6 +948,7 @@ class MT5Manager:
 
         # Distribute
         pos_idx = 0
+        sltp_payload = []
         for i, tier in enumerate(tp_tiers):
             tier_tp = tier.get("tp", 0.0)
             count = counts[i]
@@ -927,6 +961,34 @@ class MT5Manager:
                 
                 final_sl = sl if sl is not None else pos.sl
                 
+                if final_sl == pos.sl and tier_tp == pos.tp:
+                    continue
+                    
+                sltp_payload.append(f"{pos.ticket}:{final_sl}:{tier_tp}")
+
+        if not sltp_payload:
+            return []
+            
+        sltp_str = ",".join(sltp_payload)
+        
+        # 1. Attempt EA Relay (Sangat Cepat)
+        if self._send_sltp_cmd_to_ea(sltp_str):
+            return [{"status": "ea_relayed"}]
+            
+        # 2. Fallback to Python threading (Jika EA tidak merespon)
+        print("[MT5Manager] Falling back to Python SLTP execution...")
+        pos_idx = 0
+        for i, tier in enumerate(tp_tiers):
+            tier_tp = tier.get("tp", 0.0)
+            count = counts[i]
+            
+            for _ in range(count):
+                if pos_idx >= total_pos:
+                    break
+                pos = positions[pos_idx]
+                pos_idx += 1
+                
+                final_sl = sl if sl is not None else pos.sl
                 if final_sl == pos.sl and tier_tp == pos.tp:
                     continue
                     

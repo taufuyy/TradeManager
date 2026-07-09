@@ -128,7 +128,7 @@ def setup_hotkeys(cfg: ConfigManager, dashboard: Dashboard):
 
 def main():
     print("=========================================================")
-    print("  Trade Manager")
+    print("  TradeManager")
     print("=========================================================")
 
     # 1. Config
@@ -139,8 +139,11 @@ def main():
         cfg.set("target_profit_armed", False)
         print("[Startup] Target profit was armed from previous session — reset to disarmed for safety.")
 
-    # 2. Screenshots dir
-    ss_dir = os.path.join(BASE_DIR, cfg.get("screenshot_dir", "screenshots"))
+    # 2. Screenshots dir (Save to User's Documents folder safely)
+    docs_dir = os.path.expanduser("~/Documents/TradeManager_Screenshots")
+    ss_dir = cfg.get("screenshot_dir", docs_dir)
+    if not ss_dir or "d:\\trademanager" in ss_dir.lower(): # override if old hardcoded path exists or empty
+        ss_dir = docs_dir
     os.makedirs(ss_dir, exist_ok=True)
     cfg.set("screenshot_dir", ss_dir)
 

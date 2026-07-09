@@ -57,7 +57,7 @@ class Dashboard(ctk.CTk):
         # ── window setup ─────────────────────────────────────
         import os
         import sys
-        self.title("Trade Manager")
+        self.title("TradeManager")
         try:
             if getattr(sys, 'frozen', False):
                 base_path = sys._MEIPASS
@@ -737,6 +737,15 @@ class Dashboard(ctk.CTk):
         import calendar
 
         frame = ctk.CTkScrollableFrame(parent, fg_color=CARD_BG, corner_radius=10, border_width=1, border_color=CARD_BORDER)
+        
+        # Hack to increase scroll speed by 3x
+        old_wheel = frame._mouse_wheel_all
+        def fast_wheel(event):
+            try: event.delta = event.delta * 3
+            except: pass
+            old_wheel(event)
+        frame._mouse_wheel_all = fast_wheel
+        
         frame.pack(fill="both", expand=True, padx=12, pady=4)
 
         header = ctk.CTkLabel(frame, text="📈 PERFORMANCE ANALYTICS", font=(FONT_FAMILY, 15, "bold"), text_color=GOLD, anchor="w")
