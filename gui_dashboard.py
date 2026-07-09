@@ -228,7 +228,7 @@ class Dashboard(ctk.CTk):
         self._switch_hotkey.pack(side="right")
 
     def _open_login_popup(self):
-        popup = ctk.CTkToplevel(self)
+        popup = ctk.CTkToplevel(self, fg_color=BG_DARK)
         popup.title("Login to MT5")
         popup.geometry("380x280")
         popup.resizable(False, False)
@@ -245,12 +245,32 @@ class Dashboard(ctk.CTk):
         frame.pack(fill="both", expand=True, padx=20, pady=20)
 
         ctk.CTkLabel(frame, text="Account ID:", font=(FONT_FAMILY, 12)).grid(row=0, column=0, sticky="w", pady=10, padx=10)
-        entry_account = ctk.CTkEntry(frame, width=180)
+        
+        known_accounts = self.cfg.get("known_accounts", {})
+        saved_ids = list(known_accounts.keys())
+        account_labels = self.cfg.get("account_labels", {})
+        
+        display_values = []
+        for acc_id in saved_ids:
+            lbl = account_labels.get(acc_id, "")
+            if lbl:
+                display_values.append(f"{acc_id} - {lbl}")
+            else:
+                display_values.append(acc_id)
+        
+        entry_account = ctk.CTkComboBox(frame, width=180, values=display_values if display_values else [""],
+                                        button_color="#1f538d", button_hover_color="#14375e")
         entry_account.grid(row=0, column=1, pady=10, padx=10, sticky="w")
         
         last_id = self.cfg.get("last_login_id", "")
         if last_id:
-            entry_account.insert(0, last_id)
+            lbl = account_labels.get(last_id, "")
+            if lbl:
+                entry_account.set(f"{last_id} - {lbl}")
+            else:
+                entry_account.set(last_id)
+        elif not display_values:
+            entry_account.set("")
 
         ctk.CTkLabel(frame, text="Password:", font=(FONT_FAMILY, 12)).grid(row=1, column=0, sticky="w", pady=10, padx=10)
         entry_password = ctk.CTkEntry(frame, width=180, show="*")
@@ -295,6 +315,21 @@ class Dashboard(ctk.CTk):
                 
         opt_server.configure(command=on_server_change)
         
+        def on_account_select(choice):
+            actual_id = choice.split(" - ")[0].strip() if " - " in choice else choice.strip()
+            if actual_id in known_accounts:
+                srv = known_accounts[actual_id]
+                if srv in known_servers:
+                    server_var.set(srv)
+                    on_server_change(srv)
+                else:
+                    server_var.set("Custom...")
+                    entry_custom_server.delete(0, 'end')
+                    entry_custom_server.insert(0, srv)
+                    on_server_change("Custom...")
+                    
+        entry_account.configure(command=on_account_select)
+        
         def add_custom_server():
             if server_var.get() == "Custom...":
                 new_srv = entry_custom_server.get().strip()
@@ -311,7 +346,8 @@ class Dashboard(ctk.CTk):
         btn_add_srv.pack(side="left", padx=(5, 0))
 
         def perform_login():
-            acc = entry_account.get().strip()
+            raw_acc = entry_account.get().strip()
+            acc = raw_acc.split(" - ")[0].strip() if " - " in raw_acc else raw_acc
             pwd = entry_password.get().strip()
             
             if server_var.get() == "Custom...":
@@ -331,7 +367,16 @@ class Dashboard(ctk.CTk):
                 try:
                     success, msg = self.mt5.login_account(acc, pwd, srv)
                     if success:
-                        self.after(0, popup.destroy)
+                        def on_success():
+                            account_labels = self.cfg.get("account_labels", {})
+                            if acc not in account_labels:
+                                dialog = ctk.CTkInputDialog(text="Simpan akun ini?\nMasukkan label/nama untuk akun ini (Opsional):", title="Label Akun")
+                                label = dialog.get_input()
+                                if label:
+                                    account_labels[acc] = label.strip()
+                                    self.cfg.set("account_labels", account_labels)
+                            popup.destroy()
+                        self.after(0, on_success)
                     else:
                         def on_fail():
                             btn_connect.configure(state="normal", text="Connect")
@@ -1192,7 +1237,7 @@ class Dashboard(ctk.CTk):
         cur = get_currency_label(self.cfg)
         self._lbl_target_cur = ctk.CTkLabel(b3_inner, text=f"Target {cur}:", font=(FONT_FAMILY, 12), text_color=TEXT_SECONDARY)
         self._lbl_target_cur.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=5)
-        self._var_tp_usc = tk.StringVar(value=str(self.cfg.get("target_profit_usc", 0)))
+        self._var_tp_usc = tk.StringVar(value=str(self.cfg.get("target_profit_native", 0)))
         self._entry_tp_usc = ctk.CTkEntry(b3_inner, textvariable=self._var_tp_usc, height=35, width=80, font=(FONT_MONO, 12))
         self._entry_tp_usc.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=5)
         self._lbl_target_idr_label = ctk.CTkLabel(b3_inner, text="IDR:", font=(FONT_FAMILY, 12), text_color=TEXT_SECONDARY)
@@ -1235,7 +1280,7 @@ class Dashboard(ctk.CTk):
         # Row 0: Target Loss Inputs
         self._lbl_tl_cur = ctk.CTkLabel(b3_inner2, text=f"Loss {cur}:", font=(FONT_FAMILY, 12), text_color=TEXT_SECONDARY)
         self._lbl_tl_cur.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=5)
-        self._var_tl_usc = tk.StringVar(value=str(self.cfg.get("target_loss_usc", 0)))
+        self._var_tl_usc = tk.StringVar(value=str(self.cfg.get("target_loss_native", 0)))
         self._entry_tl_usc = ctk.CTkEntry(b3_inner2, textvariable=self._var_tl_usc, height=35, width=80, font=(FONT_MONO, 12))
         self._entry_tl_usc.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=5)
         self._lbl_tl_idr_label = ctk.CTkLabel(b3_inner2, text="IDR:", font=(FONT_FAMILY, 12), text_color=TEXT_SECONDARY)
@@ -1471,8 +1516,8 @@ class Dashboard(ctk.CTk):
             self._lbl_tl_status.configure(text="STATUS: TIDAK AKTIF", text_color=TEXT_SECONDARY)
             
         # calculate progress
-        target_tp_usc = self.cfg.get("target_profit_usc", 0)
-        target_tl_usc = self.cfg.get("target_loss_usc", 0)
+        target_tp_usc = self.cfg.get("target_profit_native", 0)
+        target_tl_usc = self.cfg.get("target_loss_native", 0)
         floating_pnl = s.get("floating_pnl_usc", 0)
         
         # TP Progress (only track if floating is positive)
@@ -1525,6 +1570,9 @@ class Dashboard(ctk.CTk):
 
         wins_usc = float(s.get("session_wins") or 0.0)
         losses_usc = float(s.get("session_losses") or 0.0)
+        wins_count = s.get("session_wins_count", 0)
+        losses_count = s.get("session_losses_count", 0)
+        
         daily_net_usc = float(s.get("daily_net_pnl_usc") or 0.0)
         floating_usc = float(s.get("floating_pnl_usc") or 0.0)
         
@@ -1540,15 +1588,24 @@ class Dashboard(ctk.CTk):
             tgt_usc = float(self._var_tgt_usc.get() or 0)
             ls_usc = float(self._var_loss_usc.get() or 0)
             
+            if tgt_usc == 0:
+                tgt_idr_val = float(self._var_tgt_idr.get().replace(",", "").replace(".", "") or 0)
+                if tgt_idr_val > 0: tgt_usc = from_idr_to_account(tgt_idr_val, self.cfg)
+                
+            if ls_usc == 0:
+                ls_idr_val = float(self._var_loss_idr.get().replace(",", "").replace(".", "") or 0)
+                if ls_idr_val > 0: ls_usc = from_idr_to_account(ls_idr_val, self.cfg)
+            
             # 1. Daily Goal
             if goal_current_usc >= 0:
-                goal_ratio = min(1.0, goal_current_usc / tgt_usc) if tgt_usc > 0 else 0.0
-                self._pb_daily_goal.configure(progress_color=GREEN_BRIGHT)
+                goal_ratio = (goal_current_usc / tgt_usc) if tgt_usc > 0 else 0.0
             else:
-                goal_ratio = min(1.0, abs(goal_current_usc) / ls_usc) if ls_usc > 0 else 0.0
-                self._pb_daily_goal.configure(progress_color=RED)
+                goal_ratio = (abs(goal_current_usc) / ls_usc) if ls_usc > 0 else 0.0
                 
-            self._pb_daily_goal.set(goal_ratio)
+            self._last_goal_current_native = goal_current_usc
+            self._last_tgt_native = tgt_usc
+            self._last_ls_native = ls_usc
+            self._redraw_daily_goal_bar()
             
             if cur == "IDR":
                 self._lbl_daily_goal.configure(text=f"Daily Net: Rp {goal_current_usc:,.0f} | {goal_ratio*100:.1f}%")
@@ -1564,11 +1621,11 @@ class Dashboard(ctk.CTk):
             self._pb_session_losses.set(loss_ratio)
             
             if cur == "IDR":
-                self._lbl_session_wins.configure(text=f"Wins: Rp {wins_usc:,.0f} | {win_ratio*100:.1f}%")
-                self._lbl_session_losses.configure(text=f"Losses: Rp {losses_usc:,.0f} | {loss_ratio*100:.1f}%")
+                self._lbl_session_wins.configure(text=f"Wins: Rp {wins_usc:,.0f} | {wins_count} Sesi | {win_ratio*100:.1f}%")
+                self._lbl_session_losses.configure(text=f"Losses: Rp {losses_usc:,.0f} | {losses_count} Sesi | {loss_ratio*100:.1f}%")
             else:
-                self._lbl_session_wins.configure(text=f"Wins: +{wins_usc:,.2f} {cur} (Rp {wins_idr:,.0f}) | {win_ratio*100:.1f}%")
-                self._lbl_session_losses.configure(text=f"Losses: -{losses_usc:,.2f} {cur} (Rp {losses_idr:,.0f}) | {loss_ratio*100:.1f}%")
+                self._lbl_session_wins.configure(text=f"Wins: +{wins_usc:,.2f} {cur} (Rp {wins_idr:,.0f}) | {wins_count} Sesi | {win_ratio*100:.1f}%")
+                self._lbl_session_losses.configure(text=f"Losses: -{losses_usc:,.2f} {cur} (Rp {losses_idr:,.0f}) | {losses_count} Sesi | {loss_ratio*100:.1f}%")
                 
         except Exception:
             pass
@@ -1584,6 +1641,22 @@ class Dashboard(ctk.CTk):
                 avg=s.get("avg_price_combined", 0.0),
                 mc=s.get("mc_price", 0.0),
                 mc_label="MC"
+            )
+            # update preview simulator chart lines
+            sim_res = getattr(self, "sim_result", None)
+            if sim_res:
+                sim_mc = sim_res.get("new_mc_price", 0.0)
+                sim_avg = sim_res.get("new_avg_price", s.get("avg_price_combined", 0.0))
+            else:
+                sim_mc = s.get("mc_price", 0.0)
+                sim_avg = s.get("avg_price_combined", 0.0)
+                
+            self.sim_chart.update_lines(
+                ask=s.get("ask", 0.0),
+                bid=s.get("bid", 0.0),
+                avg=sim_avg,
+                mc=sim_mc,
+                mc_label="Sim MC" if sim_res else "MC"
             )
 
     # ──────────────────────────────────────────────────────────
@@ -1629,7 +1702,7 @@ class Dashboard(ctk.CTk):
 
     def _trigger_cuan_celebration(self, amt_str, pct_str, new_bal):
         cur = get_currency_label(self.cfg)
-        dialog = ctk.CTkToplevel(self)
+        dialog = ctk.CTkToplevel(self, fg_color=BG_DARK)
         dialog.title("Goal Reached!")
         dialog.geometry("450x280")
         dialog.attributes("-topmost", True)
@@ -1657,12 +1730,12 @@ class Dashboard(ctk.CTk):
         try:
             val = float(str(new_bal).replace(",", ""))
             idr_val = to_idr(val, self.cfg)
-            bal_str = f"{new_bal} {cur} (Rp {idr_val:,.0f})"
+            bal_str = f"{new_bal} {cur}\n(Rp {idr_val:,.0f})"
         except ValueError:
             bal_str = f"{new_bal} {cur}"
 
         textbox.insert("end", "Selamat! Posisi Anda telah otomatis ditutup dengan\nProfit ", "center")
-        textbox.insert("end", amt_str + "\n\n", ("center", "green"))
+        textbox.insert("end", amt_str.replace(" (Rp ", "\n(Rp ") + "\n\n", ("center", "green"))
         textbox.insert("end", "Pertumbuhan akun: ", "center")
         textbox.insert("end", "+" + pct_str + "%\n", ("center", "green"))
         textbox.insert("end", "Saldo Anda sekarang bertambah menjadi: ", "center")
@@ -1676,7 +1749,7 @@ class Dashboard(ctk.CTk):
 
     def _trigger_loss_celebration(self, amt_str, pct_str, rem_pct, new_bal):
         cur = get_currency_label(self.cfg)
-        dialog = ctk.CTkToplevel(self)
+        dialog = ctk.CTkToplevel(self, fg_color=BG_DARK)
         dialog.title("Loss Limit Reached")
         dialog.geometry("450x290")
         dialog.attributes("-topmost", True)
@@ -1704,12 +1777,12 @@ class Dashboard(ctk.CTk):
         try:
             val = float(str(new_bal).replace(",", ""))
             idr_val = to_idr(val, self.cfg)
-            bal_str = f"{new_bal} {cur} (Rp {idr_val:,.0f})"
+            bal_str = f"{new_bal} {cur}\n(Rp {idr_val:,.0f})"
         except ValueError:
             bal_str = f"{new_bal} {cur}"
 
         textbox.insert("end", "Sayangnya, posisi Anda otomatis ditutup dengan Loss ", "center")
-        textbox.insert("end", amt_str + "\n", ("center", "red"))
+        textbox.insert("end", amt_str.replace(" (Rp ", "\n(Rp ") + "\n", ("center", "red"))
         textbox.insert("end", "karena menyentuh batas risiko.\n\n", "center")
         
         textbox.insert("end", "Tapi TENANG! Ini artinya sistem baru saja menyelamatkan Anda\ndari kerugian yang lebih dalam.\n\n", "center")
@@ -1751,7 +1824,7 @@ class Dashboard(ctk.CTk):
         self.cfg.set("hotkeys_enabled", self._hotkey_var.get())
 
     def _show_hotkey_info(self):
-        dialog = ctk.CTkToplevel(self)
+        dialog = ctk.CTkToplevel(self, fg_color=BG_DARK)
         dialog.title("Hotkey Cheat Sheet")
         dialog.geometry("350x220")
         dialog.resizable(False, False)
@@ -1921,7 +1994,7 @@ class Dashboard(ctk.CTk):
                     if cur == "IDR":
                         msg_tuples.append((f"Profit Rp {total_tp_prof:,.0f} [+{pct:.2f}%]", GREEN_BRIGHT))
                     else:
-                        msg_tuples.append((f"Profit {total_tp_prof:+.2f} {cur} (Rp {idr_val:,.0f}) [+{pct:.2f}%]", GREEN_BRIGHT))
+                        msg_tuples.append((f"Profit {total_tp_prof:+.2f} {cur} [+{pct:.2f}%]\n(Rp {idr_val:,.0f})", GREEN_BRIGHT))
                 else:
                     msg_tuples.append((f"Set TP={tp}", TEXT_PRIMARY))
             
@@ -1943,7 +2016,7 @@ class Dashboard(ctk.CTk):
                     if cur == "IDR":
                         msg_tuples.append((f"Loss Rp {total_sl_loss:,.0f} [{pct:.2f}%]", RED))
                     else:
-                        msg_tuples.append((f"Loss {total_sl_loss:+.2f} {cur} (Rp {idr_val:,.0f}) [{pct:.2f}%]", RED))
+                        msg_tuples.append((f"Loss {total_sl_loss:+.2f} {cur} [{pct:.2f}%]\n(Rp {idr_val:,.0f})", RED))
                 else:
                     if msg_tuples: msg_tuples.append(("", TEXT_PRIMARY))
                     msg_tuples.append((f"Set SL={sl}", TEXT_PRIMARY))
@@ -2031,11 +2104,11 @@ class Dashboard(ctk.CTk):
                         if cur == "IDR":
                             msg_tuples.append((f"- {tier['pct']}% ({count} pos): TP {target_price} \u27a1 Prof Rp {tier_prof:,.0f}", GREEN_BRIGHT))
                         else:
-                            msg_tuples.append((f"- {tier['pct']}% ({count} pos): TP {target_price} \u27a1 Prof {tier_prof:+.2f} {cur} (Rp {idr_val:,.0f})", GREEN_BRIGHT))
+                            msg_tuples.append((f"- {tier['pct']}% ({count} pos): TP {target_price} \u27a1 Prof {tier_prof:+.2f} {cur}\n(Rp {idr_val:,.0f})", GREEN_BRIGHT))
                     else:
                         msg_tuples.append((f"- {tier['pct']}% layer ditutup pada {target_price}", GREEN_BRIGHT))
                 else:
-                    msg_tuples.append((f"- {tier['pct']}% layer dibiarkan OPEN tanpa TP", GOLD))
+                    msg_tuples.append((f"- {tier['pct']}% ({count} pos) layer dibiarkan OPEN tanpa TP", GOLD))
                     
             if sl is not None:
                 total_sl_loss = 0.0
@@ -2054,7 +2127,7 @@ class Dashboard(ctk.CTk):
                     if cur == "IDR":
                         msg_tuples.append((f"SL {sl} \u27a1 Loss Rp {total_sl_loss:,.0f}", RED))
                     else:
-                        msg_tuples.append((f"SL {sl} \u27a1 Loss {total_sl_loss:+.2f} {cur} (Rp {idr_val:,.0f})", RED))
+                        msg_tuples.append((f"SL {sl} \u27a1 Loss {total_sl_loss:+.2f} {cur}\n(Rp {idr_val:,.0f})", RED))
                 else:
                     msg_tuples.append((f"SL dipasang ke: {sl} untuk semua layer.", TEXT_PRIMARY))
                 
@@ -2157,7 +2230,7 @@ class Dashboard(ctk.CTk):
             idr = to_idr(val, self.cfg)
             self._syncing_tp = True
             self._var_tp_idr.set(f"{idr:.0f}")
-            self.cfg.set_many({"target_profit_usc": val, "target_profit_idr": idr})
+            self.cfg.set_many({"target_profit_native": val, "target_profit_idr": idr})
             self._syncing_tp = False
         except ValueError:
             pass
@@ -2171,7 +2244,7 @@ class Dashboard(ctk.CTk):
             acct_val = from_idr_to_account(val, self.cfg)
             self._syncing_tp = True
             self._var_tp_usc.set(f"{acct_val:.2f}")
-            self.cfg.set_many({"target_profit_usc": acct_val, "target_profit_idr": val})
+            self.cfg.set_many({"target_profit_native": acct_val, "target_profit_idr": val})
             self._syncing_tp = False
         except ValueError:
             pass
@@ -2185,7 +2258,7 @@ class Dashboard(ctk.CTk):
             idr = to_idr(val, self.cfg)
             self._syncing_tl = True
             self._var_tl_idr.set(f"{idr:.0f}")
-            self.cfg.set_many({"target_loss_usc": val, "target_loss_idr": idr})
+            self.cfg.set_many({"target_loss_native": val, "target_loss_idr": idr})
             self._syncing_tl = False
         except ValueError:
             pass
@@ -2199,13 +2272,13 @@ class Dashboard(ctk.CTk):
             acct_val = from_idr_to_account(val, self.cfg)
             self._syncing_tl = True
             self._var_tl_usc.set(f"{acct_val:.2f}")
-            self.cfg.set_many({"target_loss_usc": acct_val, "target_loss_idr": val})
+            self.cfg.set_many({"target_loss_native": acct_val, "target_loss_idr": val})
             self._syncing_tl = False
         except ValueError:
             pass
 
     def _show_custom_info(self, title, message, text_color):
-        dialog = ctk.CTkToplevel(self)
+        dialog = ctk.CTkToplevel(self, fg_color=BG_DARK)
         dialog.title(title)
         dialog.geometry("350x150")
         dialog.attributes("-topmost", True)
@@ -2228,7 +2301,7 @@ class Dashboard(ctk.CTk):
                 return
             def confirm_action():
                 self.cfg.set_many({
-                    "target_profit_usc": usc,
+                    "target_profit_native": usc,
                     "target_profit_idr": idr,
                     "target_profit_armed": True,
                 })
@@ -2256,7 +2329,7 @@ class Dashboard(ctk.CTk):
                 return
             def confirm_action():
                 self.cfg.set_many({
-                    "target_loss_usc": usc,
+                    "target_loss_native": usc,
                     "target_loss_idr": idr,
                     "target_loss_armed": True,
                 })
@@ -2349,7 +2422,7 @@ class Dashboard(ctk.CTk):
         self._lbl_sim_result.configure(text=text,
                                         text_color=fg_col, fg_color=bg_col, corner_radius=6)
         
-        self._simulated_mc_price = result.get("new_mc_price", 0.0)
+        self.sim_result = result
 
     def _draw_tick_chart(self, state: dict):
         # We no longer use canvas meter, only update the sim_chart
@@ -2371,7 +2444,7 @@ class Dashboard(ctk.CTk):
         """Show information popup with dark theme.
         `message` can be a string or a list of tuples: [(text, color_hex), ...].
         """
-        dialog = ctk.CTkToplevel(self)
+        dialog = ctk.CTkToplevel(self, fg_color=BG_DARK)
         dialog.withdraw()  # Hide to prevent flicker
         dialog.title(title)
         dialog.configure(fg_color=CARD_BG)
@@ -2421,7 +2494,7 @@ class Dashboard(ctk.CTk):
         """Show confirmation popup smoothly then execute action + optional screenshot.
         `message` can be a string or a list of tuples: [(text, color_hex), ...].
         """
-        dialog = ctk.CTkToplevel(self)
+        dialog = ctk.CTkToplevel(self, fg_color=BG_DARK)
         dialog.withdraw()  # Hide to prevent flicker
         dialog.title(title)
         dialog.configure(fg_color=CARD_BG)

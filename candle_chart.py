@@ -271,6 +271,25 @@ class CandleChart(ctk.CTkFrame):
             traceback.print_exc()
 
     def update_lines(self, ask, bid, avg, mc, mc_label="MC"):
+        import time
+        now = time.time()
+        now_sec = int(now)
+        
+        # throttle to max 2 updates per second to avoid freezing the UI thread
+        if getattr(self, "_last_lines_update_time", 0) and (now - self._last_lines_update_time) < 0.5:
+            # We don't return entirely, we just skip drawing. 
+            # BUT we want to ensure the latest price is eventually drawn.
+            # Actually, returning is fine because _refresh_ui runs every 200ms.
+            return
+            
+        state_tuple = (ask, bid, avg, mc, mc_label, now_sec)
+        
+        if getattr(self, "_last_lines_state", None) == state_tuple:
+            return
+            
+        self._last_lines_state = state_tuple
+        self._last_lines_update_time = now
+        
         self.current_ask = ask
         self.current_bid = bid
         self.current_avg = avg

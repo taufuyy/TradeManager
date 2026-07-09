@@ -244,13 +244,19 @@ class MT5Manager:
                 self._poll_thread.join(timeout=2)
         
         try:
-            # Ensure we are initialized first
-            if not mt5.initialize():
+            try:
+                acc_int = int(account_id)
+            except ValueError:
+                return False, f"Format ID salah (bukan angka): {account_id}"
+
+            # Ensure we are initialized first, passing the credentials directly
+            # to avoid Authorization Failed if the last active account in MT5 is broken.
+            if not mt5.initialize(login=acc_int, password=password, server=server):
                 err = mt5.last_error()
                 return False, f"MT5 initialize() failed: {err}"
                 
-            # Attempt login
-            authorized = mt5.login(login=int(account_id), password=password, server=server)
+            # Attempt login just to be sure
+            authorized = mt5.login(login=acc_int, password=password, server=server)
             
             if not authorized:
                 err = mt5.last_error()
@@ -292,10 +298,17 @@ class MT5Manager:
             self._filling_mode_cache = {}
             self._last_daily_fetch_time = 0.0
             
-            # Save last login info (NOT password)
+            # Save last login info
+            known_accounts = self.cfg.get("known_accounts", {})
+            if isinstance(known_accounts, list):
+                # migrate from old list format just in case
+                known_accounts = {str(k): server for k in known_accounts}
+            known_accounts[str(account_id)] = server
+            
             self.cfg.set_many({
                 "last_login_id": str(account_id),
                 "last_login_server": server,
+                "known_accounts": known_accounts
             })
             
             # Step 1: Detect account currency FIRST
@@ -342,7 +355,7 @@ class MT5Manager:
     def _poll_loop(self):
         """Runs continuously on a daemon thread."""
         while self._running:
-            interval = self.cfg.get("poll_interval_ms", 200) / 1000.0
+            interval = self.cfg.get("poll_interval_ms", 50) / 1000.0
             try:
                 self._poll_once()
             except Exception as exc:
@@ -613,14 +626,10 @@ class MT5Manager:
                 daily_loss = 0.0
                 daily_net = 0.0
                 
-                # Calculate exact midnight in broker time using tick time
-                tick = mt5.symbol_info_tick(symbol) if symbol else None
-                if not tick:
-                    syms = mt5.symbols_get()
-                    if syms: tick = mt5.symbol_info_tick(syms[0].name)
-                
-                broker_now = tick.time if tick else time.time()
-                broker_midnight = (broker_now // 86400) * 86400
+                # Calculate exact midnight in LOCAL time to match user's timezone
+                local_now_dt = datetime.now()
+                local_midnight_dt = local_now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                local_midnight_epoch = local_midnight_dt.timestamp()
                 
                 login = acct.login if acct else 0
                 prefix = f"acct_{login}_"
@@ -634,7 +643,7 @@ class MT5Manager:
                 # ------------------------------------------------
                 
                 # Reset daily session tracking at midnight
-                today_str = datetime.fromtimestamp(broker_midnight).strftime("%Y-%m-%d")
+                today_str = local_midnight_dt.strftime("%Y-%m-%d")
                 
                 # Migration logic: if the account-specific stats date doesn't exist, check if we have global stats for today
                 if self.cfg.get(prefix + "daily_stats_date", None) is None:
@@ -644,6 +653,8 @@ class MT5Manager:
                             prefix + "daily_stats_date": old_date,
                             prefix + "session_wins": self.cfg.get("session_wins", 0.0),
                             prefix + "session_losses": self.cfg.get("session_losses", 0.0),
+                            prefix + "session_wins_count": self.cfg.get("session_wins_count", 0),
+                            prefix + "session_losses_count": self.cfg.get("session_losses_count", 0),
                             prefix + "completed_sessions": self.cfg.get("completed_sessions", 0),
                             prefix + "session_start_net": self.cfg.get("session_start_net", 0.0)
                         })
@@ -652,12 +663,14 @@ class MT5Manager:
                     self.cfg.set(prefix + "daily_stats_date", today_str)
                     self.cfg.set(prefix + "session_wins", 0.0)
                     self.cfg.set(prefix + "session_losses", 0.0)
+                    self.cfg.set(prefix + "session_wins_count", 0)
+                    self.cfg.set(prefix + "session_losses_count", 0)
                     self.cfg.set(prefix + "completed_sessions", 0)
                     with self._lock:
                         self._state["completed_sessions"] = 0
                 
                 for deal in daily_deals:
-                    if deal.time >= broker_midnight and deal.magic == magic and deal.type in (0, 1):
+                    if deal.time >= local_midnight_epoch and deal.magic == magic and deal.type in (0, 1):
                         net_amt = deal.profit + deal.commission + deal.swap
                         if net_amt != 0:
                             daily_net += net_amt
@@ -675,9 +688,13 @@ class MT5Manager:
                     if session_net > 0:
                         wins = self.cfg.get(prefix + "session_wins", 0.0) + session_net
                         self.cfg.set(prefix + "session_wins", wins)
+                        wc = self.cfg.get(prefix + "session_wins_count", 0) + 1
+                        self.cfg.set(prefix + "session_wins_count", wc)
                     elif session_net < 0:
                         losses = self.cfg.get(prefix + "session_losses", 0.0) + abs(session_net)
                         self.cfg.set(prefix + "session_losses", losses)
+                        lc = self.cfg.get(prefix + "session_losses_count", 0) + 1
+                        self.cfg.set(prefix + "session_losses_count", lc)
                     
                     with self._lock:
                         self._state["completed_sessions"] = self.cfg.get(prefix + "completed_sessions", 0) + 1
@@ -693,6 +710,10 @@ class MT5Manager:
         elif not current_has_positions and getattr(self, "_had_positions_last_tick", False):
             # Session Ended, flag it to be calculated on the next history deals fetch
             self._pending_session_calc = True
+            
+            # Automatically disable Goal Based Automation for the next session
+            self.cfg.set("target_profit_armed", False)
+            self.cfg.set("target_loss_armed", False)
             
         self._had_positions_last_tick = current_has_positions
 
@@ -735,6 +756,8 @@ class MT5Manager:
             "completed_sessions": self.cfg.get(f"acct_{acct.login}_completed_sessions" if acct else "", 0),
             "session_wins": float(self.cfg.get(f"acct_{acct.login}_session_wins" if acct else "") or 0.0),
             "session_losses": float(self.cfg.get(f"acct_{acct.login}_session_losses" if acct else "") or 0.0),
+            "session_wins_count": int(self.cfg.get(f"acct_{acct.login}_session_wins_count" if acct else "", 0)),
+            "session_losses_count": int(self.cfg.get(f"acct_{acct.login}_session_losses_count" if acct else "", 0)),
             "daily_gross_profit_native": round(daily_profit, 2),
             "daily_gross_loss_native": round(daily_loss, 2),
             "daily_net_pnl_native": round(daily_net, 2),
@@ -1077,16 +1100,56 @@ class MT5Manager:
         """Internal: close a list of MT5 position objects."""
         results = []
         active_sym = self.get_active_symbol()
-        if not active_sym:
+        if not active_sym or not positions:
             return results
+            
+        magic = self.cfg.get("magic_number", 0)
+        
+        # 1. Attempt EA Relay
+        info = mt5.terminal_info()
+        ea_relayed = False
+        if info and info.data_path:
+            import os, time
+            mql5_files_dir = os.path.join(info.data_path, "MQL5", "Files")
+            if os.path.exists(mql5_files_dir):
+                cmd_filename = f"tm_cmd_{int(time.time()*1000)}.txt"
+                cmd_path = os.path.join(mql5_files_dir, cmd_filename)
+                
+                # Write command
+                try:
+                    with open(cmd_path, 'w') as f:
+                        f.write(f"CLOSE_ALL|{active_sym}|{magic}")
+                    print(f"[MT5Manager] Sent CLOSE_ALL command to EA via {cmd_filename}")
+                    
+                    # Wait up to 1.5 seconds to see if EA picks it up (file is deleted by EA)
+                    for _ in range(15):
+                        time.sleep(0.1)
+                        if not os.path.exists(cmd_path):
+                            print("[MT5Manager] EA successfully picked up the command!")
+                            ea_relayed = True
+                            break
+                            
+                    if ea_relayed:
+                        return [{"status": "ea_relayed"}]
+                        
+                    # If file still exists after timeout, EA is probably not running.
+                    print("[MT5Manager] WARNING: EA Relay did not respond. Falling back to Python fallback.")
+                    try:
+                        os.remove(cmd_path) # Delete to prevent late execution
+                    except:
+                        pass
+                except Exception as e:
+                    print(f"[MT5Manager] Failed to write EA command file: {e}")
+                    
+        # 2. Fallback to Python threading
+        import concurrent.futures
         sym_info = mt5.symbol_info(active_sym)
         if sym_info is None:
             return results
-
-        for pos in positions:
+            
+        def close_single(pos):
             close_type = mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY
             price = sym_info.bid if pos.type == 0 else sym_info.ask
-            # refresh tick
             tick = mt5.symbol_info_tick(pos.symbol)
             if tick:
                 price = tick.bid if pos.type == 0 else tick.ask
@@ -1100,17 +1163,24 @@ class MT5Manager:
                 "price": price,
                 "deviation": 20,
                 "magic": 0,
-                "comment": "CLA close",
+                "comment": "CLA close fallback",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": self.get_filling_mode(pos.symbol),
             }
             res = self._send_order_with_check(req)
-            results.append({
+            return {
                 "ticket": pos.ticket,
                 "retcode": res.retcode if res else -1,
                 "comment": res.comment if res else "no response",
-            })
-            self._micro_delay()
+            }
+
+        # Use 150 workers for maximum throughput in fallback
+        workers = min(len(positions) + 5, 150)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(close_single, pos) for pos in positions]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+                
         return results
 
     # ---- Hedge Lock ----
@@ -1250,6 +1320,15 @@ class MT5Manager:
                 new_mc_price = mid + move
             new_mc_dist_pips = round((abs(mid - new_mc_price) / point) / 10.0, 1) if point else 0.0
 
+        # Calculate new average price
+        new_avg_price = 0.0
+        current_total_lots = state.get("total_lots", 0.0)
+        current_avg_combined = state.get("avg_price_combined", 0.0)
+        
+        new_total_lots = current_total_lots + extra_lots
+        if new_total_lots > 0:
+            new_avg_price = ((current_avg_combined * current_total_lots) + (extra_lots * mid)) / new_total_lots
+
         # Safety classification
         if new_mc_dist_pips >= 1000.0:
             safety = "SAFE"
@@ -1263,6 +1342,7 @@ class MT5Manager:
             "new_mc_distance_pips": new_mc_dist_pips,
             "new_net_lots": round(new_net, 2),
             "new_margin_est": round(new_margin, 2),
+            "new_avg_price": round(new_avg_price, sym_info.digits),
             "safety": safety,
         }
 
@@ -1294,15 +1374,15 @@ class MT5Manager:
         if mt5 is None or not self.is_connected():
             return {"error": "Not connected to MT5."}
             
-        from datetime import timezone, timedelta
+        from datetime import timedelta
         
-        # Strip tzinfo so we have pure naive datetimes conceptually representing BROKER time.
+        # Strip tzinfo so we have pure naive datetimes representing LOCAL date boundaries.
         start_time = start_time.replace(tzinfo=None)
         end_time = end_time.replace(tzinfo=None)
 
-        # Convert to exact Broker UTC integer timestamps for precise manual filtering
-        start_broker_sec = int(start_time.replace(tzinfo=timezone.utc).timestamp())
-        end_broker_sec = int(end_time.replace(tzinfo=timezone.utc).timestamp())
+        # Convert to local POSIX epoch timestamps to perfectly match Daily Goal time logic
+        start_broker_sec = int(start_time.timestamp())
+        end_broker_sec = int(end_time.timestamp())
         
         if is_all_time:
             start_broker_sec = 0 # Unix epoch 0 ensures all time
@@ -1332,8 +1412,7 @@ class MT5Manager:
         win_trades = 0
         loss_trades = 0
         
-        from datetime import timezone, timedelta
-        server_tz = timezone(timedelta(hours=3))
+        from datetime import timedelta
 
         valid_deals = []
         for d in deals:
@@ -1377,7 +1456,7 @@ class MT5Manager:
         net_profit = total_profit - total_loss
         
         for deal in valid_deals:
-            deal_dt = datetime.fromtimestamp(deal.time, tz=server_tz)
+            deal_dt = datetime.fromtimestamp(deal.time)
             key = f"{deal_dt.year:04d}-{deal_dt.month:02d}" if group_by_month else f"{deal_dt.year:04d}-{deal_dt.month:02d}-{deal_dt.day:02d}"
             
             if key in daily_data:
