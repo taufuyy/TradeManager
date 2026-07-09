@@ -13,6 +13,14 @@ Responsibilities:
 
 import os
 import sys
+import ctypes
+
+try:
+    myappid = 'trademanager.app.v1'
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+except Exception:
+    pass
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")

@@ -55,7 +55,12 @@ class Dashboard(ctk.CTk):
         self.cfg = cfg_mgr
 
         # ── window setup ─────────────────────────────────────
+        import os
         self.title("Trade Manager")
+        try:
+            self.iconbitmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico'))
+        except Exception:
+            pass
         self.geometry("1120x820")
         self.update_idletasks()
         self.minsize(1050, 750)
