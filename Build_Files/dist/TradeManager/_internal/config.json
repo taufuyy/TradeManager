@@ -81,11 +81,19 @@
     "daily_tgt_pct": "3.68",
     "daily_tgt_native": "1670.12",
     "daily_tgt_idr": "100000",
+<<<<<<<< HEAD:Build_Files/dist/TradeManager/_internal/config.json
     "acct_235080962_daily_stats_date": "2026-07-10",
     "acct_235080962_session_wins": 0.0,
     "acct_235080962_session_losses": 0.0,
     "acct_235080962_completed_sessions": 0,
     "acct_235080962_session_start_net": 1.5700000000000034,
+========
+    "acct_235080962_daily_stats_date": "2026-07-09",
+    "acct_235080962_session_wins": 1311.0,
+    "acct_235080962_session_losses": -37768.180000000066,
+    "acct_235080962_completed_sessions": 8,
+    "acct_235080962_session_start_net": -24579.91999999997,
+>>>>>>>> 9c23522ff784ef620552478b88a4760e8d40cf87:Source_Code/config.json
     "target_loss_native": 5567.06,
     "daily_loss_pct": "1.84",
     "daily_loss_native": "2783.53",

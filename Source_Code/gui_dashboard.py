@@ -57,7 +57,7 @@ class Dashboard(ctk.CTk):
         # ── window setup ─────────────────────────────────────
         import os
         import sys
-        self.title("TradeManager")
+        self.title("Trade Manager")
         try:
             if getattr(sys, 'frozen', False):
                 base_path = sys._MEIPASS

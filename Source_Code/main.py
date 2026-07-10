@@ -139,12 +139,16 @@ def main():
         cfg.set("target_profit_armed", False)
         print("[Startup] Target profit was armed from previous session — reset to disarmed for safety.")
 
-    # 2. Screenshots dir (Save to User's Documents folder safely)
     docs_dir = os.path.expanduser("~/Documents/TradeManager_Screenshots")
     ss_dir = cfg.get("screenshot_dir", docs_dir)
-    if not ss_dir or "d:\\trademanager" in ss_dir.lower(): # override if old hardcoded path exists or empty
+    
+    # Try to use the saved path, but if it fails (e.g. permission error from another user's path), fallback
+    try:
+        os.makedirs(ss_dir, exist_ok=True)
+    except (PermissionError, OSError):
         ss_dir = docs_dir
-    os.makedirs(ss_dir, exist_ok=True)
+        os.makedirs(ss_dir, exist_ok=True)
+        
     cfg.set("screenshot_dir", ss_dir)
 
     # 3. MT5 connection
